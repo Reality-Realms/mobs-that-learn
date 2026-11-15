@@ -10,7 +10,7 @@ import { particleSheet, particles, glyphSheet, packIcon, PARTICLE_TEX } from './
 import { learnerGeometry, learnerSkin, learnerAnimations, LEARNERS, learnerBehavior, learnerClient, LOOT } from './learners.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const VERSION = [1, 2, 0];
+const VERSION = [1, 2, 2];
 const VSTR = VERSION.join('.');
 const OUT = path.join(ROOT, 'build');
 const BP = path.join(OUT, 'MOBS_THAT_LEARN_BP');

@@ -104,6 +104,7 @@ export function learn(p, id, quiet = false) {
   t.hint = TUNE.hints.length;
   markDirty(p);
   save(p);
+  console.log(`[MTL] The mobs learned "${id}" from ${p.name}`);
   if (quiet) return;
   // 1) a deep boom, a purple flash and a shock-wave of light
   fx.playerSound(p, 'mtl.learn', 1, 1);
@@ -139,6 +140,7 @@ export function forget(p, id, quiet = false) {
   t.hint = 0;
   markDirty(p);
   save(p);
+  console.log(`[MTL] The mobs forgot "${id}" for ${p.name}`);
   if (quiet) return;
   fx.playerSound(p, 'mtl.forget', 0.9, 1);
   fx.title(p, '§8 ', `§7${G.brain} ${T.forget}`, 50);

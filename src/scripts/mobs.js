@@ -49,7 +49,8 @@ function findSpot(p, needCover) {
   for (let i = 0; i < 24; i++) {
     const a = Math.random() * Math.PI * 2, r = 11 + Math.random() * 8;
     const x = Math.floor(pl.x + Math.cos(a) * r), z = Math.floor(pl.z + Math.sin(a) * r);
-    for (let dy = 4; dy >= -6; dy--) {
+    // Search down far enough to find the ground under a player standing on a tall pillar.
+    for (let dy = 4; dy >= -40; dy--) {
       const y = Math.floor(pl.y) + dy;
       if (!isSolid(blockAt(dim, x, y, z))) continue;
       const a1 = blockAt(dim, x, y + 1, z), a2 = blockAt(dim, x, y + 2, z);

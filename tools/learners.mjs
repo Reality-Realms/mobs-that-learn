@@ -354,7 +354,7 @@ export const LEARNERS = {
     egg: ['#4f6a3c', '#9a6b3c'], families: ['mtl_climber'], loot: 'ladder_zombie',
   },
   shield_zombie: {
-    kind: 'shield', kindIndex: 2, name: 'Shield Zombie', hp: 26, speed: 0.22, dmg: 4, kb: 0.35,
+    kind: 'shield', kindIndex: 2, name: 'Shield Zombie', hp: 26, speed: 0.22, dmg: 3, kb: 0.35,
     egg: ['#4f6a3c', '#8a3fd1'], families: ['mtl_shield'], loot: 'shield_zombie', shield: true,
   },
 };
@@ -383,7 +383,9 @@ export function learnerBehavior(key, m) {
       },
       component_groups: {
         'mtl:natural': {
-          'minecraft:despawn': { despawn_from_distance: { min_distance: 54, max_distance: 128 }, filters: { test: 'has_nametag', value: false } },
+          // No filters here: in minecraft:despawn the filters are the despawn condition itself, so a filter that
+          // is true right away (like has_nametag == false) makes the mob vanish the moment it spawns.
+          'minecraft:despawn': { despawn_from_distance: { min_distance: 54, max_distance: 128 } },
         },
       },
       events: {

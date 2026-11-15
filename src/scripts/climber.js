@@ -4,6 +4,7 @@ import { isSolid, isOpen, blockAt, mobGriefing } from './blocks.js';
 import * as fx from './fx.js';
 
 const climbing = new Map(); // entity id -> climb state
+const dropWait = new Map();     // entity id -> { t, x, z } waiting to see if it finds a way down itself
 const learnedTries = new Map(); // entity id -> times it was knocked off a wall (it learns to climb faster)
 const cooldown = new Map(); // entity id -> tick it may try again
 const DIRS = [{ x: 1, z: 0 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 0, z: -1 }];
@@ -20,6 +21,7 @@ function setPose(z, v) { try { if (z.getProperty('mtl:pose') !== v) z.setPropert
 export function considerClimb(z, p, now) {
   if (climbing.has(z.id) || (cooldown.get(z.id) ?? 0) > now) return;
   const zl = z.location, pl = p.location;
+  if (pl.y - zl.y <= -2.5) { considerDrop(z, p, now); return; }
   if (pl.y - zl.y < 1.9) return;
   const dx = pl.x - zl.x, dz = pl.z - zl.z;
   if (Math.hypot(dx, dz) > 3.4 || !z.isOnGround) return;
@@ -46,6 +48,25 @@ export function considerClimb(z, p, now) {
     if (dd < bestD) { bestD = dd; best = { cx, cz, d }; }
   }
   if (best) begin(z, best.cx, best.cz, best.d, by, { x: zl.x, z: zl.z });
+}
+
+// You got down (or got knocked down) and it is stuck up high: it jumps down after you.
+// (Ladder Zombies only take half fall damage.)
+function considerDrop(z, p, now) {
+  if (!z.isOnGround) return;
+  const dx = p.location.x - z.location.x, dz = p.location.z - z.location.z, len = Math.hypot(dx, dz);
+  if (len > 10 || len < 0.3) return;
+  const st = dropWait.get(z.id);
+  // Give its own AI a second to find a way down first.
+  if (!st || now - st.t > 60 || Math.hypot(z.location.x - st.x, z.location.z - st.z) > 0.5) {
+    dropWait.set(z.id, { t: now, x: z.location.x, z: z.location.z });
+    return;
+  }
+  if (now - st.t < 20) return;
+  dropWait.delete(z.id);
+  cooldown.set(z.id, now + 40);
+  try { z.applyImpulse({ x: (dx / len) * 0.35, y: 0.32, z: (dz / len) * 0.35 }); } catch { /* ignore */ }
+  fx.sound(z.dimension, 'mtl.learner.groan', z.location, 1, 1.1);
 }
 
 function begin(z, x, cz, d, y, from) {
@@ -148,4 +169,4 @@ system.runInterval(() => {
   for (const [id, t] of cooldown) if (t < now) cooldown.delete(id);
   for (const [id, s] of climbing) if (!s.e.isValid) climbing.delete(id);
 }, 200);
-world.afterEvents.entityRemove.subscribe(({ removedEntityId: id }) => { learnedTries.delete(id); cooldown.delete(id); });
+world.afterEvents.entityRemove.subscribe(({ removedEntityId: id }) => { learnedTries.delete(id); cooldown.delete(id); dropWait.delete(id); });

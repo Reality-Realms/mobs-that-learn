@@ -27,7 +27,10 @@ world.afterEvents.playerPlaceBlock.subscribe(({ player: p, block: b }) => {
   record(p, 'pillar', pts);
 });
 
-// --- Sword spam: hitting a hostile mob again less than 0.6 s after the last sword hit -----------
+// --- Sword spam: landing sword hits on hostile mobs back to back ------------------------------
+// A mob ignores hits for 10 ticks after being hurt, so even frantic clicking only lands a hit every
+// 10-16 ticks. Hits less than 1 s apart count as spamming.
+const SPAM_WINDOW = 20;
 const lastHit = new Map();
 export function isSword(item) {
   if (!item) return false;
@@ -44,7 +47,7 @@ world.afterEvents.entityHitEntity.subscribe(({ damagingEntity: p, hitEntity: tar
   const now = system.currentTick;
   const prev = lastHit.get(p.id) ?? -999;
   lastHit.set(p.id, now);
-  if (now - prev <= 12) record(p, 'sword', 1);
+  if (now - prev <= SPAM_WINDOW) record(p, 'sword', 1);
 });
 
 // --- Learning from their mistakes: a mob killed by a trick teaches the others extra -------------
@@ -69,7 +72,7 @@ world.afterEvents.entityDie.subscribe(({ deadEntity: m, damageSource: src }) => 
     if (narrow) record(p, 'pillar', 2);
   }
   // Killed during a sword-spam flurry.
-  if (system.currentTick - (lastHit.get(p.id) ?? -999) <= 12 && isSword(heldItem(p))) record(p, 'sword', 1);
+  if (system.currentTick - (lastHit.get(p.id) ?? -999) <= SPAM_WINDOW && isSword(heldItem(p))) record(p, 'sword', 1);
 });
 
 world.afterEvents.playerLeave.subscribe((e) => { lastHit.delete(e.playerId); pillarRun.delete(e.playerId); });
