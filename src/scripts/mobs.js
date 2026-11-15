@@ -3,11 +3,12 @@
 // - at the learning moment, a couple of adapted mobs come looking for the player (at night / underground)
 import { world, system, EntityInitializationCause, Difficulty, GameMode } from '@minecraft/server';
 import { TRICKS } from './config.js';
-import { learnedList, onLearn, countsTricks } from './brain.js';
+import { learnedList, onLearn, countsTricks, mastery } from './brain.js';
 import { isSolid, isOpen, blockAt } from './blocks.js';
 import * as fx from './fx.js';
 
-const CONVERT_CHANCE = 0.45;
+// Chance a zombie spawn near you becomes a counter mob: 30% when just learned, up to 65% at full mastery.
+const CONVERT_MIN = 0.3, CONVERT_MAX = 0.65;
 const BASE = new Set(['minecraft:zombie', 'minecraft:husk']);
 
 export function nearestPlayer(dim, location, maxDistance = 48) {
@@ -26,9 +27,14 @@ function convert(e) {
   try { if (e.getComponent('minecraft:is_baby')) return; } catch { /* ignore */ }
   const p = nearestPlayer(e.dimension, e.location, 64);
   if (!p) return;
-  const mobs = learnedList(p).map((id) => TRICKS[id].mob).filter(Boolean);
-  if (!mobs.length || Math.random() > CONVERT_CHANCE) return;
-  const type = mobs[Math.floor(Math.random() * mobs.length)];
+  const ids = learnedList(p).filter((id) => TRICKS[id].mob);
+  if (!ids.length) return;
+  // Counters they have mastered better turn up more often.
+  const w = ids.map((id) => 1 + mastery(p, id));
+  let r = Math.random() * w.reduce((a, b) => a + b, 0), id = ids[ids.length - 1];
+  for (let i = 0; i < ids.length; i++) { if ((r -= w[i]) <= 0) { id = ids[i]; break; } }
+  if (Math.random() > CONVERT_MIN + (CONVERT_MAX - CONVERT_MIN) * mastery(p, id)) return;
+  const type = TRICKS[id].mob;
   const dim = e.dimension, loc = e.location, rot = e.getRotation();
   e.remove();
   try { dim.spawnEntity(type, loc).setRotation(rot); } catch { /* unloaded */ }

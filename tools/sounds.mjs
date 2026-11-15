@@ -42,6 +42,7 @@ export function soundRecipes() {
   R.shield_block_1 = { expr: `${thunk(0, 150, 1)}+${knock(0, 260, 0.6)}+${tink(0.005, 1250, 0.35)}`, dur: 0.45, filters: 'lowpass=f=5000,highpass=f=60' };
   R.shield_block_2 = { expr: `${thunk(0, 135, 1)}+${knock(0, 300, 0.6)}+${tink(0.005, 1100, 0.35)}`, dur: 0.45, filters: 'lowpass=f=5000,highpass=f=60' };
   R.shield_raise = { expr: `${N(0)}*0.4*sin(PI*min(t/0.18,1))*lt(t,0.18)+${tink(0.15, 1500, 0.25)}`, dur: 0.35, filters: 'bandpass=f=2000:width_type=h:w=3000' };
+  R.shield_bash = { expr: `${N(0)}*0.6*sin(PI*min(t/0.12,1))*lt(t,0.12)+${thunk(0.1, 95, 1.1)}+${knock(0.1, 230, 0.7)}`, dur: 0.5, filters: 'lowpass=f=3500,highpass=f=40' };
   R.shield_break = {
     expr: `${N(0)}*exp(-t*16)*0.9+${thunk(0, 110, 0.9)}+` + [0.02, 0.07, 0.11, 0.18, 0.26].map((a, i) => knock(a, 500 + i * 90, 0.5 - i * 0.06)).join('+') + `+${tink(0.01, 980, 0.3)}`,
     dur: 0.9, filters: 'lowpass=f=5000,highpass=f=60,aecho=0.6:0.4:40:0.2',
@@ -66,6 +67,7 @@ export const SOUND_EVENTS = {
   'mtl.ladder.pull': { files: ['ladder_pull'], category: 'hostile' },
   'mtl.shield.block': { files: ['shield_block_1', 'shield_block_2'], category: 'hostile' },
   'mtl.shield.raise': { files: ['shield_raise'], category: 'hostile' },
+  'mtl.shield.bash': { files: ['shield_bash'], category: 'hostile' },
   'mtl.shield.break': { files: ['shield_break'], category: 'hostile' },
   'mtl.learner.groan': { files: ['groan_1', 'groan_2', 'groan_3'], category: 'hostile' },
   'mtl.learner.hurt': { files: ['hurt'], category: 'hostile' },

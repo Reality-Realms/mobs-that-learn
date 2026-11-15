@@ -15,6 +15,15 @@ Build: `.tools/node.exe tools/build.mjs` → `dist/MOBS_THAT_LEARN_v<version>.mc
   - `tricks.js` trick detection · `climber.js` Ladder Zombie climbing · `shield.js` Shield Zombie blocking
   - `mobs.js` swaps zombie spawns for adapted ones, spawns arrivals · `main.js` scan loop + commands
 
+## How the mobs learn
+- Tricks only count when hostile mobs are around to see them (pillaring needs a monster within 24 blocks and counts more when one is close; bridging does not count).
+- Mobs also learn from their deaths: a kill from the top of a 1-block pillar, or one made during sword spam, gives extra points.
+- Keep using a trick after they've learned it and their mastery goes up. Higher mastery means counter mobs replace zombie spawns more often (30% up to 65%).
+- Counter mobs keep learning during the fight:
+  - A Ladder Zombie that gets knocked off a wall climbs faster next time. It also steps around to reach your pillar from a diagonal.
+  - A Shield Zombie lowers its shield for less time if you keep hitting it while the shield is down. If you hit it around the shield, it learns to turn towards you (circling fast still works).
+- On game versions that support it, every attacker's direction is checked against the shield separately, so multiplayer is fair.
+
 ## Roadmap
 1. ✅ Learning system, on-screen messages, Ladder Zombies (pillaring), Shield Zombies (sword spam)
 2. Remaining counters (bow, holes, water, walls, running, night)

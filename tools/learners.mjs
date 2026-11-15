@@ -276,23 +276,32 @@ export function learnerSkin(kind) {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Animation: a single procedural rig blended by pose weights computed in pre_animation.
-//   v.cl climb, v.pl place ladder, v.gd shield guard, v.st stagger, v.hitt shield impact
+// Animation: one procedural rig, Java-mod style, blended by pose weights computed in pre_animation.
+//   v.cl climb · v.pl slap ladder · v.gd shield guard (crouched) · v.bs shield bash · v.st stagger
+//   v.hitt shield impact · v.at attack swing (wind-up + chop) · v.hurt flinch · v.reach arms up when hunting
+// Poses (mtl:pose): 0 normal, 1 climb, 2 slap ladder, 3 guard, 4 stagger, 5 bash
 // ------------------------------------------------------------------------------------------------
 const lerp = (a, b, t) => `math.lerp(${a}, ${b}, ${t})`;
+const ease = (target, rate) => `math.lerp(v.${target[0]} ?? 0, ${target[1]}, math.min(1, q.delta_time * ${rate}))`;
 export const LEARNER_PRE = [
   "v.pose = q.property('mtl:pose');",
-  "v.cl = math.lerp(v.cl ?? 0, v.pose == 1 ? 1 : 0, math.min(1, q.delta_time * 10));",
-  "v.pl = math.lerp(v.pl ?? 0, v.pose == 2 ? 1 : 0, math.min(1, q.delta_time * 14));",
-  "v.gd = math.lerp(v.gd ?? 0, v.pose == 3 ? 1 : 0, math.min(1, q.delta_time * 12));",
-  "v.st = math.lerp(v.st ?? 0, v.pose == 4 ? 1 : 0, math.min(1, q.delta_time * 9));",
+  `v.cl = ${ease(['cl', 'v.pose == 1 ? 1 : 0'], 10)};`,
+  `v.pl = ${ease(['pl', 'v.pose == 2 ? 1 : 0'], 16)};`,
+  `v.gd = ${ease(['gd', '(v.pose == 3 || v.pose == 5) ? 1 : 0'], 12)};`,
+  `v.bs = ${ease(['bs', 'v.pose == 5 ? 1 : 0'], 20)};`,
+  `v.st = ${ease(['st', 'v.pose == 4 ? 1 : 0'], 9)};`,
+  `v.reach = ${ease(['reach', 'q.has_target ? 1 : 0'], 4)};`,
   "v.hits = q.property('mtl:hits'); v.hitt = (v.hits != (v.lasthits ?? v.hits)) ? 1 : math.max(0, (v.hitt ?? 0) - q.delta_time * 5); v.lasthits = v.hits;",
-  'v.atk = v.attack_time > 0 ? 1 : math.max(0, (v.atk ?? 0) - q.delta_time * 4);',
-  'v.walk = q.modified_distance_moved * 38.17; v.spd = q.modified_move_speed; v.t = q.life_time;',
+  'v.hurt = math.clamp(q.hurt_time / 10, 0, 1);',
+  'v.walk = q.modified_distance_moved * 38.17; v.spd = math.min(q.modified_move_speed, 1); v.t = q.life_time; v.br = math.sin(v.t * 100);',
+  // attack: wind up over the head (first 35%), then chop down past the start
+  'v.at = v.attack_time ?? 0;',
+  'v.chop = v.at <= 0 ? 0 : (v.at < 0.35 ? -105 * (v.at / 0.35) : -105 + 150 * ((v.at - 0.35) / 0.65));',
+  'v.chopb = v.at <= 0 ? 0 : (v.at < 0.35 ? -6 * (v.at / 0.35) : 14 * math.sin((v.at - 0.35) / 0.65 * 180));',
   // arms
-  `v.rax = ${lerp(lerp(lerp('-52 + math.cos(v.walk) * 18 * v.spd + math.sin(v.t * 80) * 3 - v.atk * 70', '-160 + math.sin(v.t * 700) * 26', 'v.cl'), '-150 - math.sin(v.t * 1400) * 6', 'v.pl'), '-25 + math.sin(v.t * 900) * 35', 'v.st')};`,
-  `v.lax = ${lerp(lerp(lerp('-46 - math.cos(v.walk) * 18 * v.spd + math.sin(v.t * 70 + 30) * 3 - v.atk * 40', '-160 - math.sin(v.t * 700) * 26', 'v.cl'), '-78 + v.hitt * 26', 'v.gd'), '-15 - math.sin(v.t * 800) * 30', 'v.st')};`,
-  'v.lay = v.gd * 28;',
+  `v.rax = ${lerp(lerp(lerp(`${lerp('-8 + v.br * 2', '-60 + v.br * 3', 'v.reach')} + math.cos(v.walk) * 24 * v.spd + v.chop`, '-162 + math.sin(v.t * 600) * 26', 'v.cl'), '-158 + math.sin(v.t * 1500) * 5', 'v.pl'), '-25 + math.sin(v.t * 900) * 35', 'v.st')};`,
+  `v.lax = ${lerp(lerp(lerp(`${lerp('-8 - v.br * 2', '-54 - v.br * 3', 'v.reach')} - math.cos(v.walk) * 24 * v.spd + (v.kind == 1 ? v.chop * 0.45 : 0)`, '-162 - math.sin(v.t * 600) * 26', 'v.cl'), '-84 + v.hitt * 30 - v.bs * 22', 'v.gd'), '-15 - math.sin(v.t * 800) * 30', 'v.st')};`,
+  'v.lay = v.gd * 28 - v.bs * 12;',
 ];
 
 export function learnerAnimations() {
@@ -300,29 +309,35 @@ export function learnerAnimations() {
   A['animation.mtl.learner.rig'] = {
     loop: true,
     bones: {
-      root: { position: [0, 'math.abs(math.sin(v.walk * 0.5)) * -0.5 * v.spd * (1 - v.cl)', 'v.st * -1.5'] },
+      root: {
+        position: [
+          0,
+          'math.abs(math.sin(v.walk * 0.5)) * -0.6 * v.spd * (1 - v.cl) - v.gd * 1.4 - v.hurt * 0.4',
+          'v.st * 1.5 - v.bs * 2.5 + v.hurt * 0.8',
+        ],
+      },
       body: {
         rotation: [
-          '5 + v.cl * 10 + v.pl * 6 + v.gd * 6 - v.st * 20 - v.hitt * 6',
-          'math.sin(v.walk * 0.5) * 5 * v.spd * (1 - v.cl) - v.gd * 12 + v.st * math.sin(v.t * 500) * 6',
-          'math.sin(v.walk * 0.5) * 3 * v.spd * (1 - v.cl) + v.cl * math.sin(v.t * 700) * 3',
+          '4 + v.br * 1.2 + v.reach * 5 + v.cl * 12 + v.pl * 6 + v.gd * 12 + v.bs * 16 - v.st * 20 - v.hitt * 8 - v.hurt * 12 + v.chopb',
+          'math.sin(v.walk * 0.5) * 6 * v.spd * (1 - v.cl) - v.gd * 14 + v.st * math.sin(v.t * 500) * 6 + (v.at > 0 ? -16 * math.sin(v.at * 180) : 0)',
+          'math.sin(v.walk * 0.5) * 3 * v.spd * (1 - v.cl) + v.cl * math.sin(v.t * 600) * 4',
         ],
       },
       head: {
         rotation: [
-          `${lerp('q.target_x_rotation', '-35', 'v.cl')} - v.st * 15 + math.sin(v.t * 60) * 2`,
-          'q.target_y_rotation * (1 - v.cl) + v.gd * 10 + v.st * math.sin(v.t * 700) * 12',
-          'math.sin(v.t * 45) * 3 + v.st * math.cos(v.t * 650) * 10',
+          `${lerp('q.target_x_rotation', '-38', 'v.cl')} - v.st * 15 - v.hurt * 14 - v.gd * 8 + math.sin(v.t * 60) * 1.5`,
+          'q.target_y_rotation * (1 - v.cl) + v.gd * 12 + v.st * math.sin(v.t * 700) * 12',
+          'math.sin(v.t * 45) * 2.5 + v.st * math.cos(v.t * 650) * 10 + v.hurt * 6',
         ],
       },
-      rightarm: { rotation: ['v.rax', '-6 + v.pl * 10', '4 + v.st * 25'] },
-      leftarm: { rotation: ['v.lax', '6 + v.lay', '-4 - v.st * 25'] },
-      rightleg: { rotation: [`${lerp('math.cos(v.walk) * 38 * v.spd', '-38 + math.sin(v.t * 700 + 180) * 28', 'v.cl')} + v.st * 12`, '4', '2'] },
-      leftleg: { rotation: [`${lerp('math.cos(v.walk + 180) * 38 * v.spd', '-38 + math.sin(v.t * 700) * 28', 'v.cl')} - v.st * 18`, '-4', '-2'] },
+      rightarm: { rotation: ['v.rax', '-6 + v.pl * 10 + (v.at > 0 ? 12 * math.sin(v.at * 180) : 0)', '4 + v.st * 25 + v.cl * 6'] },
+      leftarm: { rotation: ['v.lax', '6 + v.lay', '-4 - v.st * 25 - v.cl * 6'] },
+      rightleg: { rotation: [`${lerp('math.cos(v.walk) * 40 * v.spd', '-40 + math.sin(v.t * 600 + 180) * 30', 'v.cl')} - v.gd * 24 - v.bs * 18 + v.st * 12`, '4 + v.gd * 6', '2 + v.gd * 3'] },
+      leftleg: { rotation: [`${lerp('math.cos(v.walk + 180) * 40 * v.spd', '-40 + math.sin(v.t * 600) * 30', 'v.cl')} + v.gd * 20 + v.bs * 10 - v.st * 18`, '-4 - v.gd * 6', '-2 - v.gd * 3'] },
       pack: { scale: 'v.kind == 1 ? 1 : 0' },
       held: { rotation: ['20 * v.pl', 0, 0], scale: 'v.kind == 1 ? math.max(0.001, math.clamp(v.pl * 1.6 - 0.2, 0, 1)) : 0' },
       shield: {
-        rotation: ['-v.lax * v.gd', `90 * (1 - v.gd) - v.lay`, 'v.st * 40'],
+        rotation: ['-v.lax * v.gd', '90 * (1 - v.gd) - v.lay', 'v.st * 40'],
         scale: "v.kind == 2 && q.property('mtl:shield') ? 1 : 0",
       },
     },
@@ -360,7 +375,7 @@ export function learnerBehavior(key, m) {
       description: {
         identifier: `mtl:${key}`, is_spawnable: true, is_summonable: true,
         properties: {
-          'mtl:pose': { type: 'int', range: [0, 4], default: 0, client_sync: true },
+          'mtl:pose': { type: 'int', range: [0, 5], default: 0, client_sync: true },
           'mtl:hits': { type: 'int', range: [0, 7], default: 0, client_sync: true },
           'mtl:shield': { type: 'bool', default: !!m.shield, client_sync: true },
           'mtl:immune': { type: 'bool', default: false },

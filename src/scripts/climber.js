@@ -4,6 +4,7 @@ import { isSolid, isOpen, blockAt, mobGriefing } from './blocks.js';
 import * as fx from './fx.js';
 
 const climbing = new Map(); // entity id -> climb state
+const learnedTries = new Map(); // entity id -> times it was knocked off a wall (it learns to climb faster)
 const cooldown = new Map(); // entity id -> tick it may try again
 const DIRS = [{ x: 1, z: 0 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 0, z: -1 }];
 // Ladder facing_direction = the side the ladder faces (away from the wall): 2 north, 3 south, 4 west, 5 east.
@@ -29,11 +30,36 @@ export function considerClimb(z, p, now) {
   for (const d of order) {
     if (d.x * dx + d.z * dz < -0.2) continue;                       // never climb away from the player
     if (!isSolid(blockAt(dim, bx + d.x, by + 1, bz + d.z))) continue; // needs a wall at least 2 high
-    climbing.set(z.id, { e: z, x: bx, z: bz, d, y: zl.y, y0: zl.y, placed: by - 1, t: 0, phase: 'pull', step: 0, slap: 0 });
-    setPose(z, 2);
-    fx.sound(dim, 'mtl.ladder.pull', zl, 1, 0.9 + Math.random() * 0.2);
+    begin(z, bx, bz, d, zl.y, null);
     return;
   }
+  // No wall right here (e.g. standing diagonal to your pillar): step into a spot next to the
+  // column you are standing on, then climb that.
+  const px = Math.floor(pl.x), pz = Math.floor(pl.z);
+  if (!isSolid(blockAt(dim, px, by + 1, pz))) return;
+  let best, bestD = 2.3;
+  for (const d of DIRS) {
+    const cx = px - d.x, cz = pz - d.z;
+    if (cx === bx && cz === bz) continue;
+    if (!isSolid(blockAt(dim, cx, by - 1, cz)) || !isOpen(blockAt(dim, cx, by, cz)) || !isOpen(blockAt(dim, cx, by + 1, cz))) continue;
+    const dd = Math.hypot(cx + 0.5 - zl.x, cz + 0.5 - zl.z);
+    if (dd < bestD) { bestD = dd; best = { cx, cz, d }; }
+  }
+  if (best) begin(z, best.cx, best.cz, best.d, by, { x: zl.x, z: zl.z });
+}
+
+function begin(z, x, cz, d, y, from) {
+  const tries = learnedTries.get(z.id) ?? 0;
+  climbing.set(z.id, {
+    e: z, x, z: cz, d, y, y0: y, placed: Math.floor(y + 0.01) - 1, t: 0, step: 0, slap: 0,
+    phase: from ? 'step' : 'pull', from,
+    speed: Math.min(SPEED * 1.6, SPEED * (1 + 0.15 * tries)), // knocked off before? climbs faster now
+  });
+  if (!from) startPull(z);
+}
+function startPull(z) {
+  setPose(z, 2);
+  fx.sound(z.dimension, 'mtl.ladder.pull', z.location, 1, 0.9 + Math.random() * 0.2);
 }
 
 function stop(id, s, now, cd) {
@@ -67,15 +93,22 @@ function tick() {
     if (!z.isValid) { climbing.delete(id); continue; }
     const dim = z.dimension, cx = s.x + 0.5, cz = s.z + 0.5, yaw = yawOf(s.d);
     const loc = z.location;
-    if (Math.hypot(loc.x - cx, loc.z - cz) > 0.9 || Math.abs(loc.y - s.y) > 1.2) { stop(id, s, now, 40); continue; }
     try {
+      if (s.phase === 'step') {
+        // Shuffle over to the climbing spot (about 1/3 s).
+        const k = Math.min(1, ++s.t / 6);
+        z.teleport({ x: s.from.x + (cx - s.from.x) * k, y: s.y, z: s.from.z + (cz - s.from.z) * k }, { rotation: { x: 0, y: yaw } });
+        if (k >= 1) { s.phase = 'pull'; s.t = 0; startPull(z); }
+        continue;
+      }
+      if (Math.hypot(loc.x - cx, loc.z - cz) > 0.9 || Math.abs(loc.y - s.y) > 1.2) { stop(id, s, now, 40); continue; }
       if (s.phase === 'pull') {
         z.teleport({ x: cx, y: s.y, z: cz }, { rotation: { x: 0, y: yaw } });
         if (++s.t === 5) placeUpTo(s, Math.floor(s.y) + 1);
         if (s.t >= PULL_TICKS) { s.phase = 'climb'; setPose(z, 1); }
         continue;
       }
-      const ny = s.y + SPEED;
+      const ny = s.y + s.speed;
       const next = Math.floor(s.y) + 1;
       // Reached the top of the wall: hop over the edge.
       if (ny >= next && !isSolid(blockAt(dim, s.x + s.d.x, next, s.z + s.d.z))) {
@@ -102,10 +135,17 @@ system.runInterval(tick, 1);
 // Hitting a climbing zombie knocks it off the wall.
 world.afterEvents.entityHurt.subscribe(({ hurtEntity: z }) => {
   const s = climbing.get(z.id);
-  if (s) stop(z.id, s, system.currentTick, 50);
+  if (!s) return;
+  stop(z.id, s, system.currentTick, 35);
+  // ...but it remembers, and the next climb is quicker.
+  const n = (learnedTries.get(z.id) ?? 0) + 1;
+  learnedTries.set(z.id, n);
+  if (n <= 4 && z.isValid) fx.particle(z.dimension, 'mtl:study', fx.head(z, 2.3));
 });
 
 system.runInterval(() => {
   const now = system.currentTick;
   for (const [id, t] of cooldown) if (t < now) cooldown.delete(id);
+  for (const [id, s] of climbing) if (!s.e.isValid) climbing.delete(id);
 }, 200);
+world.afterEvents.entityRemove.subscribe(({ removedEntityId: id }) => { learnedTries.delete(id); cooldown.delete(id); });

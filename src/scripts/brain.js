@@ -8,10 +8,12 @@ import * as fx from './fx.js';
 const KEY = 'mtl:brain';
 const cache = new Map();   // player id -> { data, dirty }
 const watchFx = new Map(); // player id -> tick of the last "watching" effect
+const lastSave = new Map(); // player id -> tick of the last save (trick records save at most every 2 s)
+const blank = () => ({ s: 0, last: 0, learned: false, hint: 0, seen: 0 });
 
 function fresh() {
   const tricks = {};
-  for (const id of TRICK_IDS) tricks[id] = { s: 0, last: 0, learned: false, hint: 0 };
+  for (const id of TRICK_IDS) tricks[id] = blank();
   return { v: 1, play: 0, welcomed: false, tricks };
 }
 
@@ -21,7 +23,7 @@ export function brainOf(p) {
     let data;
     try { data = JSON.parse(p.getDynamicProperty(KEY) ?? 'null'); } catch { data = null; }
     if (!data || data.v !== 1) data = fresh();
-    for (const id of TRICK_IDS) data.tricks[id] ??= { s: 0, last: 0, learned: false, hint: 0 };
+    for (const id of TRICK_IDS) { data.tricks[id] ??= blank(); data.tricks[id].seen ??= 0; }
     entry = { data, dirty: false };
     cache.set(p.id, entry);
   }
@@ -36,6 +38,13 @@ export function save(p) {
 
 export const knows = (p, id) => counterOn(id) && !!brainOf(p).tricks[id]?.learned;
 export const progress = (p, id) => Math.min(1, (brainOf(p).tricks[id]?.s ?? 0) / TRICKS[id].threshold);
+// How well the mobs have mastered a learned counter: 0 = just learned, 1 = score maxed out.
+// Keep using the trick after they learned it and they send more (and sharper) counter mobs.
+export function mastery(p, id) {
+  const t = brainOf(p).tricks[id];
+  if (!t?.learned) return 0;
+  return Math.max(0, Math.min(1, (t.s / TRICKS[id].threshold - 1) / (TUNE.cap - 1)));
+}
 export const learnedList = (p) => TRICK_IDS.filter((id) => knows(p, id));
 export const countsTricks = (p) => { const gm = p.getGameMode(); return gm === GameMode.Survival || gm === GameMode.Adventure; };
 
@@ -49,8 +58,10 @@ export function record(p, id, points = 1) {
   const T = TRICKS[id];
   t.s = Math.min(T.threshold * TUNE.cap, t.s + points * speedMul());
   t.last = b.play;
+  t.seen++;
   markDirty(p);
-  save(p);
+  const now = system.currentTick;
+  if (now - (lastSave.get(p.id) ?? -999) >= 40) { lastSave.set(p.id, now); save(p); }
   if (t.learned) return;
   const pr = t.s / T.threshold;
   if (pr >= 1) { learn(p, id); return; }
@@ -102,7 +113,7 @@ export function learn(p, id, quiet = false) {
   fx.later(6, () => {
     if (!p.isValid) return;
     fx.title(p, '§l§dTHEY LEARNED', `§c${G.warn} §f${T.learn}`, 80);
-    p.sendMessage(`§d${G.brain} [Mob Brain] §c${G.warn} §f${T.learn} §7(${T.name} -> ${T.counter})`);
+    p.sendMessage(`§d${G.brain} [Mob Brain] §c${G.warn} §f${T.learn} §7(${T.name} -> ${T.counter}${t.seen ? `, after watching you ${t.seen} times` : ''})`);
   });
   // 3) every mob around you "gets it" at the same moment
   fx.later(10, () => {
@@ -164,7 +175,7 @@ system.runInterval(() => {
   }
 }, 20);
 
-world.afterEvents.playerLeave.subscribe((e) => { cache.delete(e.playerId); watchFx.delete(e.playerId); });
+world.afterEvents.playerLeave.subscribe((e) => { cache.delete(e.playerId); watchFx.delete(e.playerId); lastSave.delete(e.playerId); });
 
 export function statusText(p) {
   const lines = [`§d${G.brain} §lMOB BRAIN§r §7- what the mobs know about you`];
@@ -173,7 +184,7 @@ export function statusText(p) {
     const pr = progress(p, id);
     const bars = Math.round(pr * 20);
     const learned = brainOf(p).tricks[id].learned;
-    const state = !counterOn(id) ? '§8OFF' : learned ? `§cLEARNED §7-> ${T.counter}` : `§7${Math.floor(pr * 100)}%`;
+    const state = !counterOn(id) ? '§8OFF' : learned ? `§cLEARNED §7-> ${T.counter} §8(mastery ${Math.round(mastery(p, id) * 100)}%)` : `§7${Math.floor(pr * 100)}%`;
     lines.push(`§f${T.name}: §d${'|'.repeat(bars)}§8${'|'.repeat(20 - bars)} ${state}`);
   }
   return lines.join('\n');
